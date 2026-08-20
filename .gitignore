@@ -1,0 +1,23 @@
+# Environment & Python artifacts
+llm_env/
+venv/
+
+__pycache__/
+*.pyc
+
+# Local cache and models
+D:/cache/
+.cache/
+
+# Input and Output test data (Checks/PDFs)
+input/
+output/
+*.pdf
+*.png
+*.jpg
+*.json
+
+# IDE settings
+.vscode/
+.idea/
+ 

@@ -84,31 +84,30 @@ class PDFBatchExtractor:
         return s_val
 
     def _clean_check_number(self, val: Any) -> Optional[str]:
-        """
-        Safely extracts check numbers while filtering out ABA transit fractions 
-        (e.g., '68-7497/2560' or '70-2328/0719').
-        """
         if val is None:
             return None
         s_val = str(val).strip()
-        if s_val.lower() in ["null", "none", "undefined", "", "x", "1234567890", "n/a", "unknown"]:
+        if s_val.lower() in ["null", "none", "undefined", "", "x", "n/a", "unknown"]:
             return None
 
-        # 1. Remove standard ABA transit fractions (XX-XXXX/XXXX)
-        s_clean = re.sub(r'\b\d{1,4}-\d{1,5}/\d{1,5}\b', '', s_val).strip()
-        
-        # 2. Remove simple fractional patterns (XXXX/XXXX)
-        s_clean = re.sub(r'\b\d{1,4}/\d{1,5}\b', '', s_clean).strip()
+        # Handle slashes (e.g. '7469/2910' or '68-7497/2560')
+        if "/" in s_val:
+            parts = s_val.split("/")
+            prefix = parts[0].strip()
+            # If prefix contains a hyphen, it's an ABA fraction (68-7497) -> discard
+            if "-" in prefix:
+                return None
+            # If prefix is a pure number (7469), it's a valid check number -> keep
+            if prefix.isdigit() and len(prefix) >= 2:
+                return prefix
 
-        # 3. Discard placeholder blacklist values
-        if not s_clean or s_clean.lower() in ["null", "none", "x"] or s_clean in ["21741-502121", "903683424", "903683425", "903621306"]:
+        # Discard pure ABA hyphenated routing fractions without slashes
+        if re.search(r'^\d{1,4}-\d{1,5}$', s_val):
             return None
 
-        # 4. Extract remaining valid alphanumeric token if multiple items exist
-        tokens = [t for t in s_clean.split() if t.isalnum()]
-        if tokens:
-            return tokens[0]
-        return s_clean
+        # Extract clean digits
+        s_clean = re.sub(r'[^\w]', '', s_val)
+        return s_clean if s_clean else None
 
     def _repair_and_parse_json(self, response_text: str) -> Dict[str, Any]:
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -153,7 +152,7 @@ class PDFBatchExtractor:
         --- CHECK EXTRACTION RULES ---
         A page contains a check if a physical check, check voucher, or check stub is present with dollar amounts ($), 'Pay to the Order of', or MICR line.
         1. "has_check": true IF AND ONLY IF a negotiable check or check voucher is visible.
-        2. "amount_numeric": Extract the exact numerical dollar amount (e.g., 25000.00, 1000.00, 500.00). NEVER set 0.0 if a positive dollar check amount is visible.
+        2. "amount_numeric": "Extract the exact numerical dollar amount as a float (e.g., 25.00, 500.00). FOR HANDWRITTEN CHECKS: If the digits inside the numeric box ($) are ambiguous or messy, cross-reference and resolve them using the spelled-out legal text line ('Pay in words' line), as the written words represent the true value."
         3. "check_number": Extract the serial check number (usually top-right corner or MICR line). CRITICAL: Do NOT extract ABA transit fractions (numbers formatted with slashes or dashes like XX-XXXX/XXXX). Return only the true check number string or null.
 
         --- LETTER EXTRACTION RULES ---

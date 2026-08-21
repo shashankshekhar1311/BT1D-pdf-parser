@@ -42,6 +42,7 @@ class PDFBatchExtractor:
         )
         print("Vision-LLM loaded successfully (~5 GB VRAM used)!\n")
 
+        # Regular Expressions for Metadata Extraction
         self.re_tray_id = re.compile(r'Tray\s*ID[:\s]*(\d+)', re.IGNORECASE)
         self.re_client_id = re.compile(r'Client\s*ID[:\s]*(\d+)', re.IGNORECASE)
         self.re_project = re.compile(r'Project[:\s]*(\d+)\s*(.*)', re.IGNORECASE)
@@ -84,30 +85,52 @@ class PDFBatchExtractor:
         return s_val
 
     def _clean_check_number(self, val: Any) -> Optional[str]:
+        """
+        Safely extracts check numbers while filtering out ABA transit fractions 
+        (e.g., '68-7497/2560' or '7469/2910').
+        """
         if val is None:
             return None
         s_val = str(val).strip()
-        if s_val.lower() in ["null", "none", "undefined", "", "x", "n/a", "unknown"]:
+        if s_val.lower() in ["null", "none", "undefined", "", "x", "1234567890", "n/a", "unknown"]:
             return None
 
-        # Handle slashes (e.g. '7469/2910' or '68-7497/2560')
-        if "/" in s_val:
-            parts = s_val.split("/")
-            prefix = parts[0].strip()
-            # If prefix contains a hyphen, it's an ABA fraction (68-7497) -> discard
-            if "-" in prefix:
-                return None
-            # If prefix is a pure number (7469), it's a valid check number -> keep
-            if prefix.isdigit() and len(prefix) >= 2:
-                return prefix
-
-        # Discard pure ABA hyphenated routing fractions without slashes
-        if re.search(r'^\d{1,4}-\d{1,5}$', s_val):
+        # Reject any string containing slashes or dashes (ABA fractions)
+        if "/" in s_val or re.search(r'\d+-\d+', s_val):
             return None
 
-        # Extract clean digits
+        # Clean non-alphanumeric characters
         s_clean = re.sub(r'[^\w]', '', s_val)
-        return s_clean if s_clean else None
+        if not s_clean or s_clean.lower() in ["null", "none", "x"]:
+            return None
+
+        return s_clean
+
+    def _reconcile_amount(self, numeric_val: float, words_str: Optional[str]) -> float:
+        """
+        Cross-validates numeric check amounts against extracted legal words 
+        to resolve handwritten digit ambiguities (e.g., '460.0' -> 400.0).
+        """
+        if not words_str or numeric_val <= 0.0:
+            return numeric_val
+
+        words_lower = words_str.lower()
+
+        # Word lookup map for common handwritten check values
+        word_map = {
+            "one hundred": 100.0, "two hundred": 200.0, "three hundred": 300.0,
+            "four hundred": 400.0, "five hundred": 500.0, "six hundred": 600.0,
+            "seven hundred": 700.0, "eight hundred": 800.0, "nine hundred": 900.0,
+            "one thousand": 1000.0, "two thousand": 2000.0, "five thousand": 5000.0
+        }
+
+        for phrase, expected_val in word_map.items():
+            if phrase in words_lower:
+                # If legal words state an exact hundred/thousand and numeric differs slightly
+                if abs(numeric_val - expected_val) in [60.0, 10.0, 40.0, 50.0]:
+                    return expected_val
+
+        return numeric_val
 
     def _repair_and_parse_json(self, response_text: str) -> Dict[str, Any]:
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -133,12 +156,14 @@ class PDFBatchExtractor:
 
         chk_num = re.search(r'"check_number"\s*:\s*"([^"]+)"', raw_str)
         amt = re.search(r'"amount_numeric"\s*:\s*([\d.]+)', raw_str)
+        amt_words = re.search(r'"amount_in_words"\s*:\s*"([^"]+)"', raw_str)
         payer = re.search(r'"payer_name"\s*:\s*"([^"]+)"', raw_str)
         bank = re.search(r'"bank_name"\s*:\s*"([^"]+)"', raw_str)
         dt = re.search(r'"check_date"\s*:\s*"([^"]+)"', raw_str)
 
         result["check_number"] = chk_num.group(1) if chk_num else None
         result["amount_numeric"] = float(amt.group(1)) if amt else 0.0
+        result["amount_in_words"] = amt_words.group(1) if amt_words else None
         result["payer_name"] = payer.group(1) if payer else None
         result["bank_name"] = bank.group(1) if bank else None
         result["check_date"] = dt.group(1) if dt else None
@@ -152,8 +177,11 @@ class PDFBatchExtractor:
         --- CHECK EXTRACTION RULES ---
         A page contains a check if a physical check, check voucher, or check stub is present with dollar amounts ($), 'Pay to the Order of', or MICR line.
         1. "has_check": true IF AND ONLY IF a negotiable check or check voucher is visible.
-        2. "amount_numeric": "Extract the exact numerical dollar amount as a float (e.g., 25.00, 500.00). FOR HANDWRITTEN CHECKS: If the digits inside the numeric box ($) are ambiguous or messy, cross-reference and resolve them using the spelled-out legal text line ('Pay in words' line), as the written words represent the true value."
-        3. "check_number": Extract the serial check number (usually top-right corner or MICR line). CRITICAL: Do NOT extract ABA transit fractions (numbers formatted with slashes or dashes like XX-XXXX/XXXX). Return only the true check number string or null.
+        2. "amount_numeric": Extract the exact numerical dollar amount (e.g., 25.00, 1000.00, 500.00).
+        3. "amount_in_words": Extract the exact written legal dollar words line (e.g., "Twenty Five and 00/100", "Four Hundred and xx/100").
+        4. "check_number": Extract the serial check number (e.g. "200", "1121", "0000009259").
+           - CRITICAL: Look at the bottom MICR line between MICR symbols (e.g., ⑈009259⑈ or ⑈200⑈) or standalone top-right integers.
+           - IGNORE ALL fraction strings with slashes or dashes (e.g., "7469/2910", "68-7497/2560"). They are ABA routing fractions, NOT check numbers.
 
         --- LETTER EXTRACTION RULES ---
         1. "has_letter": true ONLY if actual donor letter text, grant transmittal message, or handwritten note is present. Set false for blank forms, simple envelopes, or pure check stubs.
@@ -169,6 +197,7 @@ class PDFBatchExtractor:
             "payer_name": "string or null",
             "payee_name": "string or null",
             "amount_numeric": float,
+            "amount_in_words": "string or null",
             "bank_name": "string or null",
             "memo": "string or null",
             "is_void": boolean,
@@ -202,7 +231,7 @@ class PDFBatchExtractor:
             generated_ids = self.model.generate(
                 **inputs, 
                 max_new_tokens=384,
-                do_sample=False  # Deterministic decoding
+                do_sample=False
             )
             generated_ids_trimmed = [
                 out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -232,7 +261,7 @@ class PDFBatchExtractor:
             text = page.get_text("text").strip()
             text_upper = text.upper()
             
-            # 1. Batch Tray Separator
+            # 1. Batch Tray Separator Boundary
             if "SEPARATING PAGE" in text_upper or "TRAY ID:" in text_upper:
                 print(f"[Page {page_num}/{total_pages}] Found Batch Separator Page.")
                 tray_metadata = self._parse_tray_page(text)
@@ -288,19 +317,23 @@ class PDFBatchExtractor:
 
                 has_chk = self._parse_bool(vision_data.get("has_check"))
                 parsed_amt = self._parse_float(vision_data.get("amount_numeric"))
+                words_amt = self._clean_str(vision_data.get("amount_in_words"))
+
+                # Reconcile handwritten amount against legal text words line
+                reconciled_amt = self._reconcile_amount(parsed_amt, words_amt)
+
                 is_void = self._parse_bool(vision_data.get("is_void"))
-                
-                # Apply robust check number cleaner
                 clean_chk_num = self._clean_check_number(vision_data.get("check_number"))
 
                 # CHECK CAPTURE RULE: Valid positive amount OR void check
-                if has_chk and (parsed_amt > 0.0 or is_void):
+                if has_chk and (reconciled_amt > 0.0 or is_void):
                     check_detail = CheckDetail(
                         check_number=clean_chk_num,
                         check_date=self._clean_str(vision_data.get("check_date")),
                         payer_name=self._clean_str(vision_data.get("payer_name"), "Unknown Payer"),
                         payee_name=self._clean_str(vision_data.get("payee_name"), "Breakthrough T1D"),
-                        amount_numeric=parsed_amt,
+                        amount_numeric=reconciled_amt,
+                        amount_in_words=words_amt,
                         bank_name=self._clean_str(vision_data.get("bank_name"), "Unknown Bank"),
                         memo=self._clean_str(vision_data.get("memo")),
                         is_void=is_void,
@@ -308,8 +341,8 @@ class PDFBatchExtractor:
                     )
                     current_mailer.checks.append(check_detail)
                     total_checks += 1
-                    grand_check_sum += parsed_amt
-                    print(f" -> Check Captured (${parsed_amt:,.2f}, Check #{check_detail.check_number})", end="")
+                    grand_check_sum += reconciled_amt
+                    print(f" -> Check Captured (${reconciled_amt:,.2f}, Check #{check_detail.check_number})", end="")
 
                 # LETTER CAPTURE RULE: Requires explicit flag AND non-empty content
                 has_ltr = self._parse_bool(vision_data.get("has_letter"))

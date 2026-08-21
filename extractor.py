@@ -4,7 +4,7 @@ import json
 import torch
 from io import BytesIO
 from PIL import Image
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
@@ -83,6 +83,33 @@ class PDFBatchExtractor:
             return default
         return s_val
 
+    def _clean_check_number(self, val: Any) -> Optional[str]:
+        """
+        Safely extracts check numbers while filtering out ABA transit fractions 
+        (e.g., '68-7497/2560' or '70-2328/0719').
+        """
+        if val is None:
+            return None
+        s_val = str(val).strip()
+        if s_val.lower() in ["null", "none", "undefined", "", "x", "1234567890", "n/a", "unknown"]:
+            return None
+
+        # 1. Remove standard ABA transit fractions (XX-XXXX/XXXX)
+        s_clean = re.sub(r'\b\d{1,4}-\d{1,5}/\d{1,5}\b', '', s_val).strip()
+        
+        # 2. Remove simple fractional patterns (XXXX/XXXX)
+        s_clean = re.sub(r'\b\d{1,4}/\d{1,5}\b', '', s_clean).strip()
+
+        # 3. Discard placeholder blacklist values
+        if not s_clean or s_clean.lower() in ["null", "none", "x"] or s_clean in ["21741-502121", "903683424", "903683425", "903621306"]:
+            return None
+
+        # 4. Extract remaining valid alphanumeric token if multiple items exist
+        tokens = [t for t in s_clean.split() if t.isalnum()]
+        if tokens:
+            return tokens[0]
+        return s_clean
+
     def _repair_and_parse_json(self, response_text: str) -> Dict[str, Any]:
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if not json_match:
@@ -126,8 +153,8 @@ class PDFBatchExtractor:
         --- CHECK EXTRACTION RULES ---
         A page contains a check if a physical check, check voucher, or check stub is present with dollar amounts ($), 'Pay to the Order of', or MICR line.
         1. "has_check": true IF AND ONLY IF a negotiable check or check voucher is visible.
-        2. "amount_numeric": Extract the exact numerical dollar amount (e.g., 25000.00, 1000.00, 500.00). NEVER set 0.0 if a positive dollar check amount is visible on the page!
-        3. "check_number": Serial number in top-right corner or MICR line (e.g. '0000413167', '42568', '3540015'). Ignore routing fractions with slashes like 760/312.
+        2. "amount_numeric": Extract the exact numerical dollar amount (e.g., 25000.00, 1000.00, 500.00). NEVER set 0.0 if a positive dollar check amount is visible.
+        3. "check_number": Extract the serial check number (usually top-right corner or MICR line). CRITICAL: Do NOT extract ABA transit fractions (numbers formatted with slashes or dashes like XX-XXXX/XXXX). Return only the true check number string or null.
 
         --- LETTER EXTRACTION RULES ---
         1. "has_letter": true ONLY if actual donor letter text, grant transmittal message, or handwritten note is present. Set false for blank forms, simple envelopes, or pure check stubs.
@@ -176,7 +203,7 @@ class PDFBatchExtractor:
             generated_ids = self.model.generate(
                 **inputs, 
                 max_new_tokens=384,
-                do_sample=False  # Deterministic greedy decoding
+                do_sample=False  # Deterministic decoding
             )
             generated_ids_trimmed = [
                 out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -263,29 +290,27 @@ class PDFBatchExtractor:
                 has_chk = self._parse_bool(vision_data.get("has_check"))
                 parsed_amt = self._parse_float(vision_data.get("amount_numeric"))
                 is_void = self._parse_bool(vision_data.get("is_void"))
-                raw_chk_num = self._clean_str(vision_data.get("check_number"))
-
-                if raw_chk_num and "/" in raw_chk_num:
-                    raw_chk_num = raw_chk_num.split("/")[0].split("-")[0].strip()
+                
+                # Apply robust check number cleaner
+                clean_chk_num = self._clean_check_number(vision_data.get("check_number"))
 
                 # CHECK CAPTURE RULE: Valid positive amount OR void check
                 if has_chk and (parsed_amt > 0.0 or is_void):
-                    if raw_chk_num not in ["21741-502121", "903683424", "903683425", "903621306"]:
-                        check_detail = CheckDetail(
-                            check_number=raw_chk_num,
-                            check_date=self._clean_str(vision_data.get("check_date")),
-                            payer_name=self._clean_str(vision_data.get("payer_name"), "Unknown Payer"),
-                            payee_name=self._clean_str(vision_data.get("payee_name"), "Breakthrough T1D"),
-                            amount_numeric=parsed_amt,
-                            bank_name=self._clean_str(vision_data.get("bank_name"), "Unknown Bank"),
-                            memo=self._clean_str(vision_data.get("memo")),
-                            is_void=is_void,
-                            page_number=page_num
-                        )
-                        current_mailer.checks.append(check_detail)
-                        total_checks += 1
-                        grand_check_sum += parsed_amt
-                        print(f" -> Check Captured (${parsed_amt:,.2f}, Check #{check_detail.check_number})", end="")
+                    check_detail = CheckDetail(
+                        check_number=clean_chk_num,
+                        check_date=self._clean_str(vision_data.get("check_date")),
+                        payer_name=self._clean_str(vision_data.get("payer_name"), "Unknown Payer"),
+                        payee_name=self._clean_str(vision_data.get("payee_name"), "Breakthrough T1D"),
+                        amount_numeric=parsed_amt,
+                        bank_name=self._clean_str(vision_data.get("bank_name"), "Unknown Bank"),
+                        memo=self._clean_str(vision_data.get("memo")),
+                        is_void=is_void,
+                        page_number=page_num
+                    )
+                    current_mailer.checks.append(check_detail)
+                    total_checks += 1
+                    grand_check_sum += parsed_amt
+                    print(f" -> Check Captured (${parsed_amt:,.2f}, Check #{check_detail.check_number})", end="")
 
                 # LETTER CAPTURE RULE: Requires explicit flag AND non-empty content
                 has_ltr = self._parse_bool(vision_data.get("has_letter"))

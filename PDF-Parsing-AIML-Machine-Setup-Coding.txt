@@ -1,0 +1,262 @@
+For pdf parsing, 
+
+1) Setup the llm_env first.
+2) Setup the pdf_parser directory with code components.
+
+How to setup llm_env -
+
+Step 1) Download & Install the NVIDIA Driver.
+a) Open Microsoft Edge inside your Remote Desktop session.
+b) Go to the NVIDIA Driver Downloads Page.
+c) Select the following settings:
+	-> Product Type: Data Center / Tesla
+	-> Product Series: A-Series
+	-> Product: NVIDIA A10
+	-> Operating System: Windows Server 2022
+	-> CUDA Toolkit: 12.x
+d) Download the .exe installer, run it, and select Express Installation.
+e) Verify the NVIDIA installed successfully or not.
+-> Open Command Prompt (cmd.exe) and run the command directly without typing any folder path
+nvidia-smi
+
+Step 2) Install Python & Create Virtual Environment
+DOS -
+python --version
+
+a) If python is not recognized, install Python 3.11 using Windows Package Manager (winget):
+winget install Python.Python.3.11 --accept-source-agreements --accept-package-agreements
+
+Note- 
+Windows Server 2022 does not include winget (Windows Package Manager) by default.
+Download and install Python 3.11 directly using curl built into Command Prompt:
+DOS - Download python
+curl -L -o python-3.11.9.exe https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
+Dos - Install python
+python-3.11.9.exe /quiet InstallAllUsers=1 PrependPath=1
+
+-> Run installer with the /passive flag so we can monitor the progress bar directly:
+python-3.11.9.exe /passive InstallAllUsers=1 PrependPath=1
+
+b) Create and activate your isolated Python virtual environment using standard CMD .bat activation.
+python -m venv C:\Users\shashank\llm_env
+C:\Users\shashank\llm_env\Scripts\activate.bat
+
+Step 3: Install Native Binaries for OCR & PDF Processing
+DOS
+:: Install Tesseract OCR via Winget
+winget install UB-Mannheim.TesseractOCR --accept-source-agreements --accept-package-agreements
+
+:: Install Poppler for Windows (PDF rendering engine)
+winget install oschwartz10612.Poppler --accept-source-agreements --accept-package-agreements
+
+Add Tesseract to your current CMD PATH session:
+set PATH=%PATH%;C:\Program Files\Tesseract-OCR
+
+Step 4: Install PyTorch (CUDA) & PDF AI Libraries
+DOS
+:: 1. Install CUDA-enabled PyTorch for GPU acceleration
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+:: 2. Install PDF & Layout Extraction Libraries
+pip install pymupdf pymupdf4llm pdfplumber docling unstructured[all-docs] pytesseract
+
+:: 3. Install Vision-LLM & Inference Stack
+pip install transformers accelerate bitsandbytes instructor jupyterlab
+
+Validation after NVIDIA installation -
+
+1. Verify GPU Detection in CMD
+
+"C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
+-> Output of the above command is a table displaying NVIDIA A10G along with 24576MiB VRAM.
+
+2) Add the driver folder to your current CMD session path:
+set PATH=%PATH%;C:\Program Files\NVIDIA Corporation\NVSMI
+
+3) Activate Python Virtual Environment
+DOS
+C:\Users\shashank\llm_env\Scripts\activate.bat
+
+4) Run this command inside CMD to verify that PyTorch detects your GPU:
+DOS
+python -c "import torch; print('CUDA Available:', torch.cuda.is_available()); print('GPU Name:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
+
+Expected output-
+CUDA Available: True
+GPU Name: NVIDIA A10G
+
+5) To validate the virtual environment activation:-
+In the Dos prompt, Look at the left side of your Command Prompt line. It should now show (llm_env) prepended to the path:
+(llm_env) C:\Users\shashank>
+
+
+------------------------------------------------------------------
+
+Goal - The goal is to create API which can extract pdf files information and that api fill be fed to informatica idmc. 
+so LLM model creation will mostly takes place on this machine.
+
+Architecture of how the model will be created hosted on AI/ML machine and used in IDMC:
+[Informatica IDMC] ──(REST POST /extract)──> [FastAPI Server (AWS G5)]
+                                                    │
+                                         ┌──────────┴──────────┐
+                                         ▼                     ▼
+                                  [Docling/PyMuPDF]     [Vision-LLM/Pydantic]
+                                  (Layout Parsing)       (GPU Acceleration)
+                                         └──────────┬──────────┘
+                                                    │
+[Informatica IDMC] <──(Structured JSON)─────────────┘
+
+Step 1 - Install FastAPI & API Stack under the virtual environment created above(llm_env)
+DOS
+pip install fastapi uvicorn python-multipart pydantic nssm
+
+why these libraries are required:-
+fastapi: Modern web framework that auto-generates OpenAPI/Swagger specifications required by Informatica IDMC.
+python-multipart: Handles file uploads (.pdf) via HTTP POST requests.
+pydantic: Enforces strict JSON schemas for Informatica data mapping.
+
+Step 2 - Keep API Running Continuously on Windows
+
+:: Download NSSM tool
+curl -L -o nssm.zip https://nssm.cc/release/nssm-2.24.zip
+tar -xf nssm.zip
+
+:: Install FastAPI service
+nssm.exe install PdfLlmApi "C:\Users\shashank\llm_env\Scripts\uvicorn.exe" "main:app --host 0.0.0.0 --port 8000"
+nssm.exe start PdfLlmApi
+
+Step 3 - Install vs-code for developing the python code components:
+DOS
+curl -L -o VSCodeSetup.exe "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-user"
+VSCodeSetup.exe /verysilent /mergetasks=!runcode
+
+Step 3a. Configure VS Code Extensions
+Launch Visual Studio Code.
+Press Ctrl + Shift + X to open the Extensions marketplace.
+Search for and install:
+Python (by Microsoft)
+Jupyter (by Microsoft)
+
+Step 3b. Link Your llm_env Virtual Environment
+Press Ctrl + Shift + P to open the Command Palette.
+Type and select Python: Select Interpreter.
+Choose the interpreter inside your virtual environment:
+C:\Users\shashank\llm_env\Scripts\python.exe
+------------------------------------------------------------------------------------------------------
+NOTE -
+We should move our entire development environment to the D: drive. Machine learning libraries, PyTorch CUDA builds, 
+PDF rendering caches, and Vision- LLM model weights (like Hugging Face downloads) 
+will quickly consume dozens of gigabytes and exhaust your C: drive storage.
+
+Say, if you installed everything so far in C drive and you need to move it to D drive, follow these commands:-
+
+1) Create Workspace & Virtual Environment on D: Drive
+DOS
+:: 1. Create and enter project folder on D: drive
+mkdir D:\pdf_parser
+cd /d D:\pdf_parser
+
+:: 2. Create virtual environment on D: drive
+python -m venv D:\llm_env
+
+:: 3. Activate the new D: drive environment
+D:\llm_env\Scripts\activate.bat
+
+2) Redirect LLM Model Cache to D: Drive (Crucial Step)
+-> By default, Hugging Face and PyTorch download LLM model weights into C:\Users\shashank\.cache. 
+-> Set environment variables to force all model downloads onto the D: drive instead:
+-> Run the below commands in order to moving these to D: drive to reclaims the space immediately without 
+-> having to download 14.3 GB all over again.
+------------------------------------------------------------------------------------------
+POWERSHELL
+# 1. Create the Hugging Face cache folder on D: drive
+New-Item -ItemType Directory -Force -Path "D:\cache\huggingface"
+
+# 2. Move the 14.3 GB model files from C: drive to D: drive
+Move-Item -Path "C:\Users\shashank\.cache\huggingface\*" -Destination "D:\cache\huggingface\" -Force
+
+# 3. Remove the now-empty .cache directory from C: drive
+Remove-Item -Path "C:\Users\shashank\.cache\huggingface" -Recurse -Force
+
+# 4. Set HF_HOME for your CURRENT terminal session
+$env:HF_HOME="D:\cache\huggingface"
+
+# 5. Set HF_HOME PERMANENTLY for all future terminal sessions
+[System.Environment]::SetEnvironmentVariable('HF_HOME', 'D:\cache\huggingface', 'User')
+-------------------------------------------------------------------------------------------
+:: Set permanent cache directories on D: drive
+setx HF_HOME "D:\cache\huggingface"
+setx TORCH_HOME "D:\cache\torch"
+
+3. Install Packages inside D: Drive Environment
+:: Install CUDA-enabled PyTorch
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+:: Install PDF parsing, LLM, and API libraries
+pip install pymupdf pymupdf4llm pdfplumber docling unstructured[all-docs] pytesseract transformers accelerate bitsandbytes instructor fastapi uvicorn python-multipart
+
+Sometimes, it may happen that we cannot simply transition to D drive with these commands, we have deactivate llm_env in C:
+Step 1: Deactivate & Delete C: Drive Environment 
+:: Deactivate the C: environment
+deactivate
+
+:: Delete the C: drive environment folder
+rmdir /s /q C:\Users\shashank\llm_env
+
+Step 2: Switch to D: Drive & Create Workspace
+:: Switch drive to D:
+D:
+
+:: Create project directory and navigate into it
+mkdir D:\pdf_parser
+cd D:\pdf_parser
+
+:: Create new virtual environment on D:
+python -m venv D:\llm_env
+
+:: Activate the new environment
+D:\llm_env\Scripts\activate.bat
+
+Step 3: Set Model Cache to D: & Install Packages
+:: Set model cache directories to D: drive
+setx HF_HOME "D:\cache\huggingface"
+setx TORCH_HOME "D:\cache\torch"
+
+:: Install PyTorch with CUDA 12.1 GPU support
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+:: Install document layout, PDF parsers, and FastAPI tools
+pip install pymupdf pymupdf4llm pdfplumber docling unstructured[all-docs] pytesseract transformers accelerate bitsandbytes instructor fastapi uvicorn python-multipart jupyterlab
+
+:: Install Vision LLM Dependencies
+pip install transformers accelerate bitsandbytes qwen-vl-utils pillow
+
+-> qwen-vl-utils: Optimizes image pre-processing for Qwen vision models.
+-> bitsandbytes: Quantizes the 7B model to 4-bit/8-bit so it loads in ~8 GB of VRAM, leaving ample GPU memory for high-res images.
+---------------------------------------------------------------------------------------------------
+NOTE - Now since the project directory is setup, here is the folder and file naming looks like-
+
+D:\pdf_parser\
+├── schemas.py      <-- Holds all Pydantic models & Enums
+├── extractor.py    <-- Holds PDF layout segmentation & Vision-LLM logic
+├── main.py         <-- Holds FastAPI routes and Swagger spec generator
+└── test_run.py     <-- Optional script to test extraction locally without HTTP
+----------------------------------------------------------------------------------------------------
+-> Run the test script for test extraction locally.
+python test_run.py
+----------------------------------------------------------------------------------------------------
+Security Best Practices for Informatica IDMC Integration
+To ensure strict network security and restrict access to your API:
+
+1) AWS Security Group Rule: Restrict inbound traffic on port 8000 to only the IP address of your Informatica Secure Agent 
+server, blocking public internet access.
+2) Local Bindings: If Informatica Secure Agent is hosted on the same virtual machine, 
+change uvicorn host from 0.0.0.0 to 127.0.0.1 so the API cannot be reached outside localhost.
+
+----------------------------------------------------------------------------------------------------
+To test the script locally -
+In VS Code -
+(llm_env)PS D:\pdf_parser> python test_run.py
+
+----------------------------------------------------------------------------------------------------
+

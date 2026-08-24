@@ -1,0 +1,60 @@
+Important Git commands -
+
+git config --global user.email "your_email@example.com"
+git config --global user.name "Your GitHub Username"
+
+# 1. Verify Git installation
+git --version
+
+# 2. Initialize and push your project to GitHub
+git init
+git add .
+git commit -m "Initial commit: PDF Batch Parser with Qwen2.5-VL Vision LLM"
+git branch -M main
+git remote add origin https://github.com/your-username/pdf-check-parser.git
+git push -u origin main
+
+# 1. Update remote origin with your correct username and repo name
+git remote set-url origin https://github.com/shashankshekhar1311/BT1D.git
+
+# 2. Pull the remote README.md created on GitHub to merge histories
+git pull origin main --rebase
+
+# 3. Push your local code to GitHub
+git push -u origin main
+
+# Check which files have been modified or added
+git status
+
+# View line-by-line differences in modified files
+git diff
+
+# 1. Stage all modified and new files
+git add .
+
+# 2. Commit your changes with a descriptive message
+git commit -m "Updated check validation rules and prompt fixes"
+
+# 3. Push the new commit to your remote GitHub repository
+git push
+
+# Run these two commands in Git Bash to force GitHub to authenticate specifically as shashankshekhar1311:
+git remote set-url origin https://shashankshekhar1311@github.com/shashankshekhar1311/BT1D-pdf-parser.git
+git push
+
+# 1. Move into your repository folder
+cd /e/BT1D-pdf-parser
+
+# 2. Fetch and merge the latest code from GitHub
+git pull origin main
+
+# If you have uncommitted changes on the remote machine:
+# Temporarily stash your local changes, pull the latest updates, and restore your stash:
+git stash
+git pull origin main
+git stash pop
+
+# If you want to completely discard local changes on the remote machine and force-sync with GitHub:
+git fetch origin
+git reset --hard origin/main
+

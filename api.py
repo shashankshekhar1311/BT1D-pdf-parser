@@ -1,36 +1,54 @@
 import os
 import shutil
 import tempfile
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from pydantic import BaseModel
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from extractor import PDFBatchExtractor
+from schemas import DocumentExtractionResponse
+
 app = FastAPI(title="PDF Check Extractor API", version="1.0")
-# Global model instance loaded ONCE into GPU memory at server startup
+
 extractor = None
+
 @app.on_event("startup")
 def load_vision_model():
     global extractor
     print("Initializing Vision-LLM model on GPU...")
     extractor = PDFBatchExtractor()
     print("Model ready for API requests.")
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "gpu_loaded": extractor is not None}
-@app.post("/api/v1/extract-pdf")
+
+@app.post("/api/v1/extract-pdf", response_model=DocumentExtractionResponse)
 async def extract_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
+    # Safely handle missing filenames from CAI
+    safe_filename = file.filename if file.filename else "uploaded_document.pdf"
+    
+    if not safe_filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
-    # Save uploaded PDF to temporary file
+        
     temp_dir = tempfile.mkdtemp()
-    temp_pdf_path = os.path.join(temp_dir, file.filename)
+    temp_pdf_path = os.path.join(temp_dir, safe_filename)
+    
     try:
         with open(temp_pdf_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        
+        # Verify file received content before running PyMuPDF
+        if os.path.getsize(temp_pdf_path) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded PDF file is empty or missing content.")
+            
         # Run Vision-LLM extraction pipeline
         result = extractor.process_pdf(temp_pdf_path)
-        return result.dict()
+        
+        # Return Pydantic object directly to allow FastAPI to handle Enum & JSON encoding
+        return result
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Extraction Pipeline Exception: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
     finally:
-        # Clean up temporary storage
         shutil.rmtree(temp_dir, ignore_errors=True)

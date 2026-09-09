@@ -1,3 +1,4 @@
+import os
 import pymupdf  # PyMuPDF
 import re
 import json
@@ -6,6 +7,7 @@ from io import BytesIO
 from PIL import Image
 from typing import List, Tuple, Dict, Any, Optional
 
+from openpyxl import load_workbook
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 
@@ -18,6 +20,8 @@ from schemas import (
 
 class PDFBatchExtractor:
     def __init__(self):
+        self.lookup_workbook_path = os.path.join(os.path.dirname(__file__), "Input", "PowerApp_Lookup.xlsx")
+        self.lookup_tables = self._load_lookup_tables()
         print("Loading 4-Bit Quantized Qwen2.5-VL-7B Vision Model onto GPU...")
         
         bnb_config = BitsAndBytesConfig(
@@ -131,6 +135,210 @@ class PDFBatchExtractor:
                     return expected_val
 
         return numeric_val
+
+    def _load_lookup_tables(self) -> Dict[str, List[Dict[str, Any]]]:
+        if not os.path.exists(self.lookup_workbook_path):
+            return {}
+
+        workbook = load_workbook(self.lookup_workbook_path, data_only=True)
+        lookup_tables: Dict[str, List[Dict[str, Any]]] = {}
+
+        for sheet in workbook.worksheets:
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                continue
+
+            headers = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
+            data_rows: List[Dict[str, Any]] = []
+
+            for row in rows[1:]:
+                if not any(cell is not None and str(cell).strip() for cell in row):
+                    continue
+
+                normalized_row = {}
+                for idx, header in enumerate(headers):
+                    if idx < len(row):
+                        normalized_row[header] = row[idx]
+                data_rows.append(normalized_row)
+
+            lookup_tables[sheet.title] = data_rows
+
+        return lookup_tables
+
+    def _normalize_lookup_text(self, text: Any) -> str:
+        if text is None:
+            return ""
+        cleaned = str(text).lower()
+        cleaned = cleaned.replace("\u00a0", " ")
+        cleaned = re.sub(r"[^a-z0-9]+", " ", cleaned)
+        return re.sub(r"\s+", " ", cleaned).strip()
+
+    def _keyword_variants(self, raw_keyword: Any) -> List[str]:
+        if raw_keyword is None:
+            return []
+
+        variants = []
+        for candidate in str(raw_keyword).split("|"):
+            for sub in candidate.split("/"):
+                for item in sub.split(","):
+                    cleaned = item.strip()
+                    if cleaned:
+                        variants.append(cleaned)
+
+        normalized_variants = []
+        seen = set()
+        for variant in variants:
+            base_norm = self._normalize_lookup_text(variant)
+            compact_norm = re.sub(r"\s+", "", base_norm)
+            for candidate in [base_norm, compact_norm]:
+                if candidate and candidate not in seen:
+                    seen.add(candidate)
+                    normalized_variants.append(candidate)
+
+        return normalized_variants
+
+    def _match_lookup_by_keywords(self, text: str, rows: List[Dict[str, Any]], key_field: str, keyword_field: str) -> Optional[str]:
+        if not rows or not text:
+            return None
+
+        normalized_text = self._normalize_lookup_text(text)
+        compact_text = re.sub(r"\s+", "", normalized_text)
+        if not normalized_text:
+            return None
+
+        for row in rows:
+            if key_field not in row or keyword_field not in row:
+                continue
+
+            raw_keyword = row[keyword_field]
+            raw_value = row[key_field]
+            if raw_keyword is None or raw_value is None:
+                continue
+
+            raw_value = str(raw_value).strip()
+            for variant in self._keyword_variants(raw_keyword):
+                if variant in normalized_text or variant in compact_text:
+                    return raw_value
+
+        return None
+
+    def _match_first_lookup_hit(self, candidate_texts: List[str], rows: List[Dict[str, Any]], key_field: str, keyword_field: str) -> Optional[str]:
+        for candidate in candidate_texts:
+            if not candidate:
+                continue
+            match = self._match_lookup_by_keywords(candidate, rows, key_field, keyword_field)
+            if match:
+                return match
+        return None
+
+    def _debug_first_lookup_hit(self, candidate_texts: List[str], rows: List[Dict[str, Any]], key_field: str, keyword_field: str) -> Dict[str, Any]:
+        for candidate in candidate_texts:
+            if not candidate:
+                continue
+            match = self._match_lookup_by_keywords(candidate, rows, key_field, keyword_field)
+            if match:
+                return {
+                    "matched_text": candidate,
+                    "matched_value": match,
+                    "key_field": key_field,
+                    "keyword_field": keyword_field,
+                }
+        return {
+            "matched_text": None,
+            "matched_value": None,
+            "key_field": key_field,
+            "keyword_field": keyword_field,
+        }
+
+    def _get_value(self, obj: Any, field_name: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(field_name, default)
+        return getattr(obj, field_name, default)
+
+    def _get_lookup_candidate_texts(self, mailer: Any, check: Any) -> List[str]:
+        candidates: List[str] = []
+
+        if mailer is not None:
+            donor_notes = self._get_value(mailer, "donor_notes", []) or []
+            for note in donor_notes:
+                if note:
+                    candidates.append(str(note))
+
+        if check is not None:
+            for field_name in ["memo", "payer_name", "payee_name", "bank_name"]:
+                value = self._get_value(check, field_name)
+                if value:
+                    candidates.append(str(value))
+
+        return candidates
+
+    def _match_entry_system(self, text: str) -> Optional[str]:
+        table = self.lookup_tables.get("Entry_System", [])
+        return self._match_lookup_by_keywords(text, table, "EntrySystem", "EntryKeywords")
+
+    def _match_restrictions(self, text: str) -> Optional[str]:
+        table = self.lookup_tables.get("Restrictions", [])
+        return self._match_lookup_by_keywords(text, table, "Restrictions", "Reasons")
+
+    def _match_payment_method(self, text: str) -> Optional[str]:
+        table = self.lookup_tables.get("Payment_Methods", [])
+        return self._match_lookup_by_keywords(text, table, "PaymentMethod", "PaymentMethodKeywords")
+
+    def _match_tax_receipt(self, text: str) -> Optional[str]:
+        table = self.lookup_tables.get("TaxReceipt", [])
+        return self._match_lookup_by_keywords(text, table, "ReceiptType", "PaymentType_Method")
+
+    def _apply_lookup_rules_to_response(self, response: DocumentExtractionResponse) -> DocumentExtractionResponse:
+        if not self.lookup_tables:
+            return response
+
+        for batch in response.batches:
+            for mailer in batch.mailers:
+                for check in getattr(mailer, "checks", []) or []:
+                    candidate_texts = self._get_lookup_candidate_texts(mailer, check)
+                    if not candidate_texts:
+                        continue
+
+                    check.entrysystem = self._match_first_lookup_hit(
+                        candidate_texts,
+                        self.lookup_tables.get("Entry_System", []),
+                        "EntrySystem",
+                        "EntryKeywords",
+                    )
+                    check.restrictions = self._match_first_lookup_hit(
+                        candidate_texts,
+                        self.lookup_tables.get("Restrictions", []),
+                        "Restrictions",
+                        "Reasons",
+                    )
+                    check.PaymentMethod = self._match_first_lookup_hit(
+                        candidate_texts,
+                        self.lookup_tables.get("Payment_Methods", []),
+                        "PaymentMethod",
+                        "PaymentMethodKeywords",
+                    )
+                    check.ReceiptType = self._match_first_lookup_hit(
+                        candidate_texts,
+                        self.lookup_tables.get("TaxReceipt", []),
+                        "ReceiptType",
+                        "PaymentType_Method",
+                    )
+
+                    debug_info = {
+                        "check_number": getattr(check, "check_number", None),
+                        "candidate_texts": candidate_texts,
+                        "matched_fields": {
+                            "entrysystem": self._debug_first_lookup_hit(candidate_texts, self.lookup_tables.get("Entry_System", []), "EntrySystem", "EntryKeywords"),
+                            "restrictions": self._debug_first_lookup_hit(candidate_texts, self.lookup_tables.get("Restrictions", []), "Restrictions", "Reasons"),
+                            "PaymentMethod": self._debug_first_lookup_hit(candidate_texts, self.lookup_tables.get("Payment_Methods", []), "PaymentMethod", "PaymentMethodKeywords"),
+                            "ReceiptType": self._debug_first_lookup_hit(candidate_texts, self.lookup_tables.get("TaxReceipt", []), "ReceiptType", "PaymentType_Method"),
+                        },
+                    }
+                    check.lookup_debug = debug_info
+
+        return response
 
     def _repair_and_parse_json(self, response_text: str) -> Dict[str, Any]:
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -372,7 +580,7 @@ class PDFBatchExtractor:
 
                 print()
 
-        return DocumentExtractionResponse(
+        response = DocumentExtractionResponse(
             filename=pdf_path.split("\\")[-1],
             total_pages_processed=total_pages,
             total_batch_count=len(batches),
@@ -380,6 +588,7 @@ class PDFBatchExtractor:
             grand_total_check_amount=round(grand_check_sum, 2),
             batches=batches
         )
+        return self._apply_lookup_rules_to_response(response)
 
     def _should_evaluate_page(self, page, text_upper: str) -> bool:
         is_known_non_check = "SEPARATING PAGE" in text_upper or "SHIP TO:" in text_upper or "PAY-01:" in text_upper

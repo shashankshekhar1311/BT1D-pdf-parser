@@ -40,6 +40,11 @@ class CheckDetail(BaseModel):
    amount_in_words: Optional[str] = Field(None, description="Written dollar line")
    bank_name: Optional[str] = Field(None, description="Bank institution name")
    memo: Optional[str] = Field(None, description="Check memo field")
+   entrysystem: Optional[str] = Field(None, description="Mapped entry system from workbook lookup")
+   restrictions: Optional[str] = Field(None, description="Mapped restriction from workbook lookup")
+   PaymentMethod: Optional[str] = Field(None, description="Canonical payment method from workbook lookup")
+   ReceiptType: Optional[str] = Field(None, description="Tax receipt designation from workbook lookup")
+   lookup_debug: Optional[dict] = Field(None, description="Trace of the first matching donor note or memo text that drove the lookup")
    is_void: bool = Field(False, description="Flagged true if check is void")
    page_number: int = Field(..., description="PDF page number containing check")
 

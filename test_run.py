@@ -2,13 +2,13 @@ import json
 from extractor import PDFBatchExtractor
 
 if __name__ == "__main__":
-    pdf_file_path = "D:\\\pdf_parser\input\\BT1D_010226_A001.pdf"  # Place sample PDF here
+    pdf_file_path = "D:\\\pdf_parser\input\\BT1D_031626_B001.pdf"  # Place sample PDF here
     extractor = PDFBatchExtractor()
     print(f"Processing PDF: {pdf_file_path}...")
     result = extractor.process_pdf(pdf_file_path)
 
     # Save formatted JSON output to disk
-    output_json_path = "D:\\pdf_parser\\output\\output_extraction.json"
+    output_json_path = "D:\\pdf_parser\\output\\output_extraction_BT1D_031626_B001.json"
 
     with open(output_json_path, "w") as f:
         f.write(json.dumps(result.model_dump(), indent=2))

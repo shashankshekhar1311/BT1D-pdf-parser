@@ -21,6 +21,25 @@ if (-not $gitExe) {
     throw "Git was not found on PATH and no standard install location was detected. Install Git for Windows and retry."
 }
 
+$pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $pythonExe) {
+    $possiblePythonPaths = @(
+        "C:\Program Files\Python311\python.exe",
+        "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311\python.exe",
+        "C:\Python311\python.exe",
+        "C:\Windows\py.exe"
+    )
+    foreach ($candidate in $possiblePythonPaths) {
+        if (Test-Path $candidate) {
+            $pythonExe = $candidate
+            break
+        }
+    }
+}
+if (-not $pythonExe) {
+    throw "Python was not found on PATH and no standard install location was detected. Install Python 3.11 and retry."
+}
+
 Write-Host "[152-DEV-SETUP] Ensuring repository is present at $repoRoot"
 if (-not (Test-Path $repoRoot)) {
     throw "Repository not found at $repoRoot. Clone the repo first."
@@ -31,7 +50,7 @@ Write-Host "[152-DEV-SETUP] Pulling latest code from GitHub main"
 
 if (-not (Test-Path (Join-Path $repoRoot ".venv"))) {
     Write-Host "[152-DEV-SETUP] Creating virtual environment"
-    python -m venv (Join-Path $repoRoot ".venv")
+    & $pythonExe -m venv (Join-Path $repoRoot ".venv")
 }
 
 Write-Host "[152-DEV-SETUP] Activating virtual environment"

@@ -70,6 +70,10 @@ powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
 & ".\152\scripts\start_152_server.bat"
 ```
 
+> Important: the 152 launch script now checks for a stale listener on the default gateway port before starting. If port `8000` is already occupied by an old instance, it stops that process automatically to avoid the `Errno 10048` bind failure.
+>
+> Always run the batch file from the repo root (`D:\pdf_parser`) so the relative paths resolve correctly.
+
 ### Option A: use the repo batch scripts
 
 #### Development model service

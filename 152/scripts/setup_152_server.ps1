@@ -21,13 +21,20 @@ if (-not $gitExe) {
     throw "Git was not found on PATH and no standard install location was detected. Install Git for Windows and retry."
 }
 
-$pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $pythonExe) {
-    $pyLauncher = (Get-Command py -ErrorAction SilentlyContinue).Source
+$pythonExe = $null
+$pythonArgs = @()
+
+$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+if ($pythonCmd) {
+    $pythonExe = $pythonCmd.Source
+} else {
+    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
     if ($pyLauncher) {
-        $pythonExe = $pyLauncher
+        $pythonExe = $pyLauncher.Source
+        $pythonArgs = @("-3.11")
     }
 }
+
 if (-not $pythonExe) {
     $possiblePythonPaths = @(
         "C:\Program Files\Python311\python.exe",
@@ -44,12 +51,28 @@ if (-not $pythonExe) {
     foreach ($candidate in $possiblePythonPaths) {
         if (Test-Path $candidate) {
             $pythonExe = $candidate
+            if ($candidate -match 'Microsoft\\WindowsApps\\python\.exe$') {
+                $pythonArgs = @()
+            }
             break
         }
     }
 }
+
 if (-not $pythonExe) {
     throw "Python was not found on PATH and no standard install location was detected. Install Python 3.11+ and retry."
+}
+
+function Invoke-Python {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    & $pythonExe @pythonArgs @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python command failed: $($Arguments -join ' ')"
+    }
 }
 
 Write-Host "[152-SETUP] Ensuring repository is present at $repoRoot"
@@ -64,25 +87,26 @@ Write-Host "[152-SETUP] Pulling latest code from GitHub main"
 # Create virtual environment if missing
 if (-not (Test-Path (Join-Path $repoRoot ".venv"))) {
     Write-Host "[152-SETUP] Creating virtual environment"
-    & $pythonExe -m venv (Join-Path $repoRoot ".venv")
+    Invoke-Python @("-m", "venv", (Join-Path $repoRoot ".venv"))
 }
 
 # Activate the venv
 Write-Host "[152-SETUP] Activating virtual environment"
 . (Join-Path $repoRoot ".venv\Scripts\Activate.ps1")
+$venvPython = (Join-Path $repoRoot ".venv\Scripts\python.exe")
 
-# Upgrade pip and install project dependencies
+# Upgrade pip and install project dependencies using the venv interpreter
 Write-Host "[152-SETUP] Installing Python dependencies"
-python -m pip install --upgrade pip
-python -m pip install -r (Join-Path $repoRoot "requirements.txt")
+& $venvPython -m pip install --upgrade pip
+& $venvPython -m pip install -r (Join-Path $repoRoot "requirements.txt")
 
 # Validate required runtime packages
 Write-Host "[152-SETUP] Verifying required libraries"
-python -c "import fastapi, httpx, uvicorn, pydantic; print('runtime_libs_ok')"
+& $venvPython -c "import fastapi, httpx, uvicorn, pydantic; print('runtime_libs_ok')"
 
 # Ensure the repo root is importable
 Write-Host "[152-SETUP] Verifying gateway import path"
-python -c "import os, sys; sys.path.insert(0, r'D:\pdf_parser'); import 152.app.api.gateway; print('gateway_import_ok')"
+& $venvPython -c "import importlib, sys; sys.path.insert(0, r'D:\pdf_parser'); importlib.import_module('152.app.api.gateway'); print('gateway_import_ok')"
 
 # Check for a stale port listener before startup
 Write-Host "[152-SETUP] Checking if port 8000 is already in use"

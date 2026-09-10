@@ -60,14 +60,14 @@ Use the dedicated start scripts below instead of the single-machine batch files 
 ```powershell
 cd D:\pdf_parser
 powershell -ExecutionPolicy Bypass -File .\148\scripts\setup_148_server.ps1
-powershell -ExecutionPolicy Bypass -File .\148\scripts\start_148_server.bat
+& ".\148\scripts\start_148_server.bat"
 ```
 
 #### 152 gateway server setup
 ```powershell
 cd D:\pdf_parser
 powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
-powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.bat
+& ".\152\scripts\start_152_server.bat"
 ```
 
 ### Option A: use the repo batch scripts
@@ -75,25 +75,25 @@ powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.bat
 #### Development model service
 ```powershell
 cd D:\pdf_parser
-148\scripts\start_dev_148.bat
+& ".\148\scripts\start_dev_148.bat"
 ```
 
 #### Development gateway
 ```powershell
 cd D:\pdf_parser
-152\scripts\start_dev_152.bat
+& ".\152\scripts\start_dev_152.bat"
 ```
 
 #### Production model service
 ```powershell
 cd D:\pdf_parser
-148\scripts\start_prod_model_148.bat
+& ".\148\scripts\start_prod_model_148.bat"
 ```
 
 #### Production gateway
 ```powershell
 cd D:\pdf_parser
-152\scripts\start_152_gateway.bat
+& ".\152\scripts\start_152_gateway.bat"
 ```
 
 ### Option B: start the Python entrypoints directly
@@ -216,5 +216,8 @@ This script does the following:
 
 ## Notes
 
+- The .ps1 files are for environment setup and bootstrap tasks.
+- The .bat files are the runtime launchers that actually start the model service and gateway.
+- The correct way to invoke a .bat launcher from PowerShell is `& ".\path\to\script.bat"`.
 - The older generic `start_gpu.bat` guidance is not the active project startup path.
 - The current startup path is the two-service model described above using the scripts in the `148\scripts` and `152\scripts` folders.

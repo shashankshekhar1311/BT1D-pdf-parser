@@ -20,10 +20,29 @@ Use this checklist for routine start, stop, and quick troubleshooting of the 148
 4. Confirm gateway health responds.
 5. Run a quick smoke test against the gateway.
 
+### Automated local dev commands
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\deploy_dev.ps1
+```
+
 ### Automated production commands
 ```powershell
 cd D:\pdf_parser
 powershell -ExecutionPolicy Bypass -File .\deploy_prod.ps1
+```
+
+### Manual local dev setup
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\148\scripts\setup_148_dev.ps1
+powershell -ExecutionPolicy Bypass -File .\148\scripts\start_dev_148.bat
+```
+
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_dev.ps1
+powershell -ExecutionPolicy Bypass -File .\152\scripts\start_dev_152.bat
 ```
 
 ### Manual server-specific commands
@@ -37,6 +56,13 @@ powershell -ExecutionPolicy Bypass -File .\148\scripts\start_148_server.bat
 cd D:\pdf_parser
 powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
 powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.bat
+```
+
+### Safe restart for the local dev flow
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\148\scripts\restart_148_dev.ps1
+powershell -ExecutionPolicy Bypass -File .\152\scripts\restart_152_dev.ps1
 ```
 
 ### Safe restart for the 152 production gateway

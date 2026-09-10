@@ -159,6 +159,25 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 For development, swap the port numbers to 9001 and 8001.
 
+## One-shot local dev deployment
+For local development on the same machine, use the dev deployment flow so the separate port pairs remain clean and isolated:
+
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\deploy_dev.ps1
+```
+
+This script does the following:
+
+1. pulls the latest GitHub `main` code
+2. seeds the 148 local dev environment
+3. seeds the 152 local dev environment
+4. clears stale listeners on ports 8001 and 9001
+5. starts the dev model service on 9001
+6. waits for the model to initialize
+7. starts the dev gateway on 8001
+8. validates both local dev health endpoints
+
 ## One-shot production deployment
 Use the repo-level deployment script for a safe prod restart:
 

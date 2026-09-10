@@ -1,0 +1,155 @@
+# Startup Guide
+
+This project uses a two-service startup model:
+
+- 148 is the GPU-backed model service
+- 152 is the gateway that calls the model service and exposes the batch API
+
+The service topology is:
+
+```text
+152 gateway -> 148 model service /infer
+```
+
+## Environment layout
+
+### Development
+- Model service: `http://127.0.0.1:9001`
+- Gateway: `http://127.0.0.1:8001`
+- Purpose: local iteration without disrupting production traffic
+
+### Production
+- Model service: `http://127.0.0.1:9000`
+- Gateway: `http://127.0.0.1:8000`
+- Purpose: normal runtime path used for real extraction work
+
+### Environment file conventions
+The project keeps separate runtime configuration files for each environment so the dev and prod services can run side by side on different ports. The production gateway config follows the same pattern shown in the app's env file:
+
+```dotenv
+APP_ENV=prod
+HOST=0.0.0.0
+PORT=8000
+RELOAD=false
+MODEL_SERVICE_URL=http://127.0.0.1:9000/infer
+MODEL_VERSION=v1_0_0
+INPUT_MODE=batch
+OUTPUT_MODE=combined_json
+PYTHONPATH=D:\pdf_parser
+INTERNAL_MODEL_HOST=127.0.0.1
+INTERNAL_MODEL_PORT=9000
+INTERNAL_MODEL_ENDPOINT=/infer
+
+# Dev companion config uses separate ports so production and development services can run simultaneously.
+# For example: dev gateway -> 127.0.0.1:8001 and dev model -> 127.0.0.1:9001.
+```
+
+This pattern is mirrored in the dev configuration, but with the dev ports (`8001` and `9001`) and the corresponding model URL pointing to the development service.
+
+## Start the services
+
+### Option A: use the repo batch scripts
+
+#### Development model service
+```powershell
+cd D:\pdf_parser
+148\scripts\start_dev_148.bat
+```
+
+#### Development gateway
+```powershell
+cd D:\pdf_parser
+152\scripts\start_dev_152.bat
+```
+
+#### Production model service
+```powershell
+cd D:\pdf_parser
+148\scripts\start_prod_model_148.bat
+```
+
+#### Production gateway
+```powershell
+cd D:\pdf_parser
+152\scripts\start_152_gateway.bat
+```
+
+### Option B: start the Python entrypoints directly
+
+#### Development model service
+```powershell
+cd D:\pdf_parser
+$env:APP_ENV = 'dev'
+$env:HOST = '0.0.0.0'
+$env:PORT = '9001'
+$env:RELOAD = 'true'
+$env:MODEL_VERSION = 'dev'
+.\.venv\Scripts\python.exe 148\scripts\start_model_service_148.py
+```
+
+#### Development gateway
+```powershell
+cd D:\pdf_parser
+$env:APP_ENV = 'dev'
+$env:HOST = '0.0.0.0'
+$env:PORT = '8001'
+$env:RELOAD = 'true'
+$env:MODEL_SERVICE_URL = 'http://127.0.0.1:9001/infer'
+.\.venv\Scripts\python.exe 152\scripts\start_gateway_152.py
+```
+
+#### Production model service
+```powershell
+cd D:\pdf_parser
+$env:APP_ENV = 'prod_model'
+$env:HOST = '0.0.0.0'
+$env:PORT = '9000'
+$env:RELOAD = 'false'
+$env:MODEL_VERSION = 'v1_0_0'
+.\.venv\Scripts\python.exe 148\scripts\start_model_service_148.py
+```
+
+#### Production gateway
+```powershell
+cd D:\pdf_parser
+$env:APP_ENV = 'prod'
+$env:HOST = '0.0.0.0'
+$env:PORT = '8000'
+$env:RELOAD = 'false'
+$env:MODEL_SERVICE_URL = 'http://127.0.0.1:9000/infer'
+.\.venv\Scripts\python.exe 152\scripts\start_gateway_152.py
+```
+
+## Health checks
+
+### 148 model service
+```powershell
+Invoke-RestMethod http://127.0.0.1:9000/health
+```
+
+### 152 gateway
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+For development, swap the port numbers to 9001 and 8001.
+
+## Startup order
+
+1. Start the 148 model service.
+2. Confirm the service health endpoint responds.
+3. Start the 152 gateway.
+4. Confirm the gateway health endpoint responds.
+5. Submit a batch extraction request to the gateway.
+
+## Operational guidance
+
+- Do not run multiple heavy inference jobs in parallel on the same GPU worker.
+- Development and production can run at the same time because they are isolated to different ports.
+- If a port is already in use, stop the stale listener before restarting.
+- The gateway is the only public entry point; the model service is internal and should not be called directly by end users.
+
+## Notes
+
+- The older generic `start_gpu.bat` guidance is not the active project startup path.
+- The current startup path is the two-service model described above using the scripts in the `148\scripts` and `152\scripts` folders.

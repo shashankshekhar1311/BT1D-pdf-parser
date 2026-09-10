@@ -1,13 +1,14 @@
 import unittest
 
 from extractor import PDFBatchExtractor
+from lookup_service import resolve_lookup_workbook_path
 from schemas import DocumentExtractionResponse, BatchTray, MailerPackage, CheckDetail
 
 
 class LookupMatchingTests(unittest.TestCase):
     def setUp(self):
         self.extractor = PDFBatchExtractor.__new__(PDFBatchExtractor)
-        self.extractor.lookup_workbook_path = r"D:\pdf_parser\Input\PowerApp_Lookup.xlsx"
+        self.extractor.lookup_workbook_path = str(resolve_lookup_workbook_path())
         self.extractor.lookup_tables = self.extractor._load_lookup_tables()
 
     def test_lookup_text_normalization_and_keyword_matching(self):
@@ -145,6 +146,16 @@ class LookupMatchingTests(unittest.TestCase):
         self.assertEqual(check.PaymentMethod, "Donor Advised Fund")
         self.assertIsNotNone(check.lookup_debug)
         self.assertTrue(check.lookup_debug["candidate_texts"])
+
+    def test_should_evaluate_page_keeps_donor_and_memo_signal_pages(self):
+        class DummyPage:
+            def get_images(self):
+                return [1]
+
+        self.assertTrue(self.extractor._should_evaluate_page(DummyPage(), "DONOR NOTE: FUND-A-CURE ENVELOPE"))
+        self.assertTrue(self.extractor._should_evaluate_page(DummyPage(), "MEMO: DAFgiving360 purpose gift"))
+        self.assertFalse(self.extractor._should_evaluate_page(DummyPage(), "SEPARATING PAGE"))
+        self.assertFalse(self.extractor._should_evaluate_page(DummyPage(), "SHIP TO: ABC COMPANY"))
 
 
 if __name__ == "__main__":

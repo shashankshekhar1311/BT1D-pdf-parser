@@ -4,12 +4,14 @@ import re
 import json
 import torch
 from io import BytesIO
+from pathlib import Path
 from PIL import Image
 from typing import List, Tuple, Dict, Any, Optional
 
-from openpyxl import load_workbook
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
+
+from lookup_service import resolve_lookup_workbook_path, load_lookup_tables
 
 from schemas import (
     DocumentExtractionResponse, BatchTray, MailerPackage,
@@ -20,10 +22,17 @@ from schemas import (
 
 class PDFBatchExtractor:
     def __init__(self):
-        self.lookup_workbook_path = os.path.join(os.path.dirname(__file__), "Input", "PowerApp_Lookup.xlsx")
+        self.lookup_workbook_path = str(resolve_lookup_workbook_path())
         self.lookup_tables = self._load_lookup_tables()
+
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "GPU/CUDA is required to run the Qwen2.5-VL model. "
+                "Please use a machine with an NVIDIA GPU and a CUDA-enabled PyTorch/bitsandbytes installation."
+            )
+
         print("Loading 4-Bit Quantized Qwen2.5-VL-7B Vision Model onto GPU...")
-        
+
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
@@ -137,33 +146,15 @@ class PDFBatchExtractor:
         return numeric_val
 
     def _load_lookup_tables(self) -> Dict[str, List[Dict[str, Any]]]:
-        if not os.path.exists(self.lookup_workbook_path):
-            return {}
+        workbook_path = Path(self.lookup_workbook_path)
+        if not workbook_path.exists():
+            try:
+                workbook_path = resolve_lookup_workbook_path()
+            except FileNotFoundError:
+                return {}
+            self.lookup_workbook_path = str(workbook_path)
 
-        workbook = load_workbook(self.lookup_workbook_path, data_only=True)
-        lookup_tables: Dict[str, List[Dict[str, Any]]] = {}
-
-        for sheet in workbook.worksheets:
-            rows = list(sheet.iter_rows(values_only=True))
-            if not rows:
-                continue
-
-            headers = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
-            data_rows: List[Dict[str, Any]] = []
-
-            for row in rows[1:]:
-                if not any(cell is not None and str(cell).strip() for cell in row):
-                    continue
-
-                normalized_row = {}
-                for idx, header in enumerate(headers):
-                    if idx < len(row):
-                        normalized_row[header] = row[idx]
-                data_rows.append(normalized_row)
-
-            lookup_tables[sheet.title] = data_rows
-
-        return lookup_tables
+        return load_lookup_tables(workbook_path)
 
     def _normalize_lookup_text(self, text: Any) -> str:
         if text is None:
@@ -591,12 +582,56 @@ class PDFBatchExtractor:
         return self._apply_lookup_rules_to_response(response)
 
     def _should_evaluate_page(self, page, text_upper: str) -> bool:
-        is_known_non_check = "SEPARATING PAGE" in text_upper or "SHIP TO:" in text_upper or "PAY-01:" in text_upper
+        if not page:
+            return False
+
+        text_upper = (text_upper or "").strip()
+        if not text_upper and not page.get_images():
+            return False
+
+        is_known_non_check = (
+            "SEPARATING PAGE" in text_upper
+            or "TRAY ID:" in text_upper
+            or "SHIP TO:" in text_upper
+            or "PAY-01:" in text_upper
+            or "UPS" in text_upper and "TRACKING" in text_upper
+        )
         if is_known_non_check:
             return False
+
         has_images = len(page.get_images()) > 0
-        has_text = len(text_upper) > 10
-        return has_images or has_text
+        if not has_images and len(text_upper) <= 10:
+            return False
+
+        relevant_markers = (
+            "CHECK",
+            "PAY TO THE ORDER OF",
+            "DONOR",
+            "GIFT",
+            "GRANT",
+            "MEMO",
+            "BANK",
+            "AMOUNT",
+            "VOID",
+            "MICR",
+            "DAF",
+            "DAFGIVING",
+            "DONOR ADVISED",
+            "FUND-A-CURE",
+            "FUND A CURE",
+            "ENVELOPE",
+            "LETTER",
+            "PAYEE",
+            "PAYER",
+        )
+
+        if any(marker in text_upper for marker in relevant_markers):
+            return True
+
+        if has_images and len(text_upper) > 10:
+            return True
+
+        return False
 
     def _parse_tray_page(self, text: str) -> Dict[str, Any]:
         data = {}

@@ -12,9 +12,10 @@ set APP_ENV=dev
 set HOST=0.0.0.0
 set PORT=8001
 set RELOAD=true
-set MODEL_VERSION=dev
+set MODEL_VERSION=v1_0_0
+set MODEL_PATH=%CD%\148\registry\models\qwen2_5_vl\v1_0_0
 set MODEL_SERVICE_URL=http://127.0.0.1:9001/infer
 set PYTHONPATH=%CD%
 
-echo [152-DEV] Starting development gateway on port 8001 pointing to model service 9001...
+echo [152-DEV] Starting development gateway on port 8001 pointing to model service 9001 using model version v1_0_0...
 python "%~dp0\start_gateway_152.py"

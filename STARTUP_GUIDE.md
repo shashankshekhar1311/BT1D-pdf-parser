@@ -83,7 +83,8 @@ $env:APP_ENV = 'dev'
 $env:HOST = '0.0.0.0'
 $env:PORT = '9001'
 $env:RELOAD = 'true'
-$env:MODEL_VERSION = 'dev'
+$env:MODEL_VERSION = 'v1_0_0'
+$env:MODEL_PATH = 'D:/pdf_parser/148/registry/models/qwen2_5_vl/v1_0_0'
 .\.venv\Scripts\python.exe 148\scripts\start_model_service_148.py
 ```
 
@@ -94,7 +95,9 @@ $env:APP_ENV = 'dev'
 $env:HOST = '0.0.0.0'
 $env:PORT = '8001'
 $env:RELOAD = 'true'
+$env:MODEL_VERSION = 'v1_0_0'
 $env:MODEL_SERVICE_URL = 'http://127.0.0.1:9001/infer'
+$env:MODEL_PATH = 'D:/pdf_parser/148/registry/models/qwen2_5_vl/v1_0_0'
 .\.venv\Scripts\python.exe 152\scripts\start_gateway_152.py
 ```
 

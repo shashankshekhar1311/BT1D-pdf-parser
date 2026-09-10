@@ -1,0 +1,55 @@
+$ErrorActionPreference = "Stop"
+
+$repoRoot = "D:\pdf_parser"
+Set-Location $repoRoot
+
+Write-Host "[148-SETUP] Ensuring repository is present at $repoRoot"
+if (-not (Test-Path $repoRoot)) {
+    throw "Repository not found at $repoRoot. Clone the repo first."
+}
+
+Write-Host "[148-SETUP] Pulling latest code from GitHub main"
+git -C $repoRoot pull origin main
+
+if (-not (Test-Path (Join-Path $repoRoot ".venv"))) {
+    Write-Host "[148-SETUP] Creating virtual environment"
+    python -m venv (Join-Path $repoRoot ".venv")
+}
+
+Write-Host "[148-SETUP] Activating virtual environment"
+. (Join-Path $repoRoot ".venv\Scripts\Activate.ps1")
+
+Write-Host "[148-SETUP] Installing Python dependencies"
+python -m pip install --upgrade pip
+python -m pip install -r (Join-Path $repoRoot "requirements.txt")
+
+Write-Host "[148-SETUP] Verifying required libraries"
+python -c "import fastapi, httpx, uvicorn, torch, transformers, pymupdf, PIL; print('runtime_libs_ok')"
+
+Write-Host "[148-SETUP] Verifying model service import path"
+python -c "import os, sys; sys.path.insert(0, r'D:\pdf_parser'); import 148.app.api.model_service; print('model_import_ok')"
+
+Write-Host "[148-SETUP] Checking if port 9000 is already in use"
+$portInUse = Get-NetTCPConnection -LocalPort 9000 -ErrorAction SilentlyContinue
+if ($portInUse) {
+    Write-Host "[148-SETUP] Port 9000 is already occupied. You may need to stop the old model service before starting the new one."
+}
+
+Write-Host "[148-SETUP] Writing runtime config for 148 model service"
+$envFile = Join-Path $repoRoot "148\config\prod_model.env"
+@'
+APP_ENV=prod_model
+HOST=0.0.0.0
+PORT=9000
+RELOAD=false
+MODEL_VERSION=v1_0_0
+MODEL_PATH=D:/pdf_parser/148/registry/models/qwen2_5_vl/v1_0_0
+MODEL_SERVICE_URL=http://127.0.0.1:9000/infer
+LOOKUP_PATH=D:\pdf_parser\lookup_service.py
+PYTHONPATH=D:\pdf_parser
+MODEL_REGISTRY_ROOT=D:\pdf_parser\148\registry\models\qwen2_5_vl
+PRODUCTION_VERSION_FILE=D:\pdf_parser\148\registry\models\qwen2_5_vl\production\current_version.txt
+'@ | Set-Content -Path $envFile -Encoding utf8
+
+Write-Host "[148-SETUP] 148 environment is ready"
+Write-Host "[148-SETUP] Next step: run .\148\scripts\start_148_server.bat"

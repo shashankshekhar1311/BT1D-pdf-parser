@@ -20,18 +20,32 @@ Use this checklist for routine start, stop, and quick troubleshooting of the 148
 4. Confirm gateway health responds.
 5. Run a quick smoke test against the gateway.
 
-### Commands
+### Automated production commands
 ```powershell
 cd D:\pdf_parser
-.
-.\.venv\Scripts\python.exe 148\scripts\start_model_service_148.py
-.
-.
-.
-.
+powershell -ExecutionPolicy Bypass -File .\deploy_prod.ps1
 ```
 
-Production examples:
+### Manual server-specific commands
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\148\scripts\setup_148_server.ps1
+powershell -ExecutionPolicy Bypass -File .\148\scripts\start_148_server.bat
+```
+
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
+powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.bat
+```
+
+### Safe restart for the 152 production gateway
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\152\scripts\restart_152_prod.ps1
+```
+
+### Production examples
 ```powershell
 cd D:\pdf_parser
 $env:APP_ENV = 'prod_model'
@@ -91,6 +105,12 @@ Get-NetTCPConnection -LocalPort 8001,9001 -ErrorAction SilentlyContinue
 Get-NetTCPConnection -LocalPort 8000,9001,9000,9001 -ErrorAction SilentlyContinue
 ```
 Then stop the stale process before restarting.
+
+For the production gateway, the recommended safe restart is:
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\152\scripts\restart_152_prod.ps1
+```
 
 ### Health check returns error
 - Confirm both services are running.

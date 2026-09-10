@@ -48,6 +48,28 @@ This pattern is mirrored in the dev configuration, but with the dev ports (`8001
 
 ## Start the services
 
+### Production deployment pattern for two separate servers
+This project is designed to run as two separate services on two separate machines or server processes:
+
+- 148 server: GPU-backed model service
+- 152 server: public gateway that forwards inference to the model service
+
+Use the dedicated start scripts below instead of the single-machine batch files when deploying in a split-server layout.
+
+#### 148 model server setup
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\148\scripts\setup_148_server.ps1
+powershell -ExecutionPolicy Bypass -File .\148\scripts\start_148_server.bat
+```
+
+#### 152 gateway server setup
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
+powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.bat
+```
+
 ### Option A: use the repo batch scripts
 
 #### Development model service
@@ -137,6 +159,25 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 For development, swap the port numbers to 9001 and 8001.
 
+## One-shot production deployment
+Use the repo-level deployment script for a safe prod restart:
+
+```powershell
+cd D:\pdf_parser
+powershell -ExecutionPolicy Bypass -File .\deploy_prod.ps1
+```
+
+This script does the following:
+
+1. pulls the latest GitHub `main` code
+2. validates and sets up the 148 model server environment
+3. validates and sets up the 152 gateway environment
+4. clears stale listeners on ports 8000 and 9000
+5. starts the model service first
+6. waits for the model to initialize
+7. starts the gateway second
+8. verifies both health endpoints return `200 OK`
+
 ## Startup order
 
 1. Start the 148 model service.
@@ -151,6 +192,8 @@ For development, swap the port numbers to 9001 and 8001.
 - Development and production can run at the same time because they are isolated to different ports.
 - If a port is already in use, stop the stale listener before restarting.
 - The gateway is the only public entry point; the model service is internal and should not be called directly by end users.
+- When running on separate machines, the gateway must point to the model server's correct `MODEL_SERVICE_URL` value and not assume the model is local.
+- For production restarts, always stop stale listeners on `8000`/`9000` before starting new services.
 
 ## Notes
 

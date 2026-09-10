@@ -20,4 +20,5 @@ output/
 # IDE settings
 .vscode/
 .idea/
- 
+ .venv/
+.venv/

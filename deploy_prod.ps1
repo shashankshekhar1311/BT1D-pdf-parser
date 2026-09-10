@@ -3,9 +3,27 @@ $ErrorActionPreference = "Stop"
 Write-Host "[DEPLOY] Starting production deployment"
 Set-Location "D:\pdf_parser"
 
+$gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
+if (-not $gitExe) {
+    $possibleGitPaths = @(
+        "D:\Git\cmd\git.exe",
+        "C:\Program Files\Git\cmd\git.exe",
+        "C:\Program Files\Git\bin\git.exe"
+    )
+    foreach ($candidate in $possibleGitPaths) {
+        if (Test-Path $candidate) {
+            $gitExe = $candidate
+            break
+        }
+    }
+}
+if (-not $gitExe) {
+    throw "Git was not found on PATH and no standard install location was detected. Install Git for Windows and retry."
+}
+
 # 1. Pull latest GitHub code
 Write-Host "[DEPLOY] Pulling latest code from GitHub main"
-git -C "D:\pdf_parser" pull origin main
+& $gitExe -C "D:\pdf_parser" pull origin main
 
 # 2. Ensure both virtual environments exist and dependencies are installed
 Write-Host "[DEPLOY] Setting up 148 model server environment"

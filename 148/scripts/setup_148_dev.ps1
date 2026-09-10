@@ -3,13 +3,31 @@ $ErrorActionPreference = "Stop"
 $repoRoot = "D:\pdf_parser"
 Set-Location $repoRoot
 
+$gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
+if (-not $gitExe) {
+    $possibleGitPaths = @(
+        "D:\Git\cmd\git.exe",
+        "C:\Program Files\Git\cmd\git.exe",
+        "C:\Program Files\Git\bin\git.exe"
+    )
+    foreach ($candidate in $possibleGitPaths) {
+        if (Test-Path $candidate) {
+            $gitExe = $candidate
+            break
+        }
+    }
+}
+if (-not $gitExe) {
+    throw "Git was not found on PATH and no standard install location was detected. Install Git for Windows and retry."
+}
+
 Write-Host "[148-DEV-SETUP] Ensuring repository is present at $repoRoot"
 if (-not (Test-Path $repoRoot)) {
     throw "Repository not found at $repoRoot. Clone the repo first."
 }
 
 Write-Host "[148-DEV-SETUP] Pulling latest code from GitHub main"
-git -C $repoRoot pull origin main
+& $gitExe -C $repoRoot pull origin main
 
 if (-not (Test-Path (Join-Path $repoRoot ".venv"))) {
     Write-Host "[148-DEV-SETUP] Creating virtual environment"

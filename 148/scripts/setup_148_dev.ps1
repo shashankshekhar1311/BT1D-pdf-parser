@@ -23,11 +23,23 @@ if (-not $gitExe) {
 
 $pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $pythonExe) {
+    $pyLauncher = (Get-Command py -ErrorAction SilentlyContinue).Source
+    if ($pyLauncher) {
+        $pythonExe = $pyLauncher
+    }
+}
+if (-not $pythonExe) {
     $possiblePythonPaths = @(
         "C:\Program Files\Python311\python.exe",
+        "C:\Program Files\Python312\python.exe",
+        "C:\Program Files\Python313\python.exe",
         "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311\python.exe",
+        "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python312\python.exe",
+        "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python313\python.exe",
         "C:\Python311\python.exe",
-        "C:\Windows\py.exe"
+        "C:\Python312\python.exe",
+        "C:\Python313\python.exe",
+        "C:\Users\$env:USERNAME\AppData\Local\Microsoft\WindowsApps\python.exe"
     )
     foreach ($candidate in $possiblePythonPaths) {
         if (Test-Path $candidate) {
@@ -37,7 +49,7 @@ if (-not $pythonExe) {
     }
 }
 if (-not $pythonExe) {
-    throw "Python was not found on PATH and no standard install location was detected. Install Python 3.11 and retry."
+    throw "Python was not found on PATH and no standard install location was detected. Install Python 3.11+ and retry."
 }
 
 Write-Host "[148-DEV-SETUP] Ensuring repository is present at $repoRoot"

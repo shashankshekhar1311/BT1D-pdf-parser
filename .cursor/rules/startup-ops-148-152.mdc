@@ -1,0 +1,39 @@
+---
+description: Startup and ops conventions for 148/152 services
+globs: STARTUP_GUIDE.md,148/**/*,152/**/*,deploy_*.ps1
+alwaysApply: false
+---
+
+# Startup & Ops
+
+Canonical guide: `STARTUP_GUIDE.md`.
+
+## Split-server production
+
+```powershell
+# On 148 (GPU model machine)
+powershell -ExecutionPolicy Bypass -File .\148\scripts\setup_148_server.ps1
+& ".\148\scripts\start_148_server.bat"
+
+# On 152 (API gateway machine)
+powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
+powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.ps1
+```
+
+Always run launchers from repo root `D:\pdf_parser`. The 152 PS1 launcher clears a stale port-`8000` listener before bind.
+
+## Health
+
+- 148: `Invoke-RestMethod http://127.0.0.1:9000/health` (dev: `9001`)
+- 152: `Invoke-RestMethod http://127.0.0.1:8000/health` (dev: `8001`)
+
+## One-shot scripts (same-machine)
+
+- Dev: `.\deploy_dev.ps1`
+- Prod: `.\deploy_prod.ps1`
+
+## Config invariants
+
+- Prod gateway must set `MODEL_SERVICE_URL=http://10.0.0.148:9000/infer`
+- Prefer `.ps1` over `.bat` for reliable restarts
+- Clear stale listeners on `8000`/`9000` (or `8001`/`9001`) before restart

@@ -1,0 +1,45 @@
+---
+description: Core topology — 148 model service, 152 gateway, Informatica consumer
+alwaysApply: true
+---
+
+# PDF Parser — Machine Topology
+
+This repo is a **split two-service PDF extraction stack** for **Informatica IDMC**.
+
+## Roles
+
+| Code | Machine / role | Responsibility |
+|------|----------------|----------------|
+| **148** | GPU model service (`10.0.0.148`) | Loads Qwen2.5-VL; serves internal `/infer` |
+| **152** | API gateway (`10.0.0.152`) | Public batch API; validates PDFs; calls 148; aggregates JSON |
+| **Upstream** | Informatica / SharePoint | Calls **152 only** — never call 148 directly |
+
+```text
+Informatica / clients  →  152 gateway (/api/v1/extract-batch)
+                       →  148 model service (/infer)
+```
+
+## Ports
+
+| Env | 148 model | 152 gateway | Model URL from gateway |
+|-----|-----------|-------------|------------------------|
+| **Prod** | `10.0.0.148:9000` | `10.0.0.152:8000` | `http://10.0.0.148:9000/infer` |
+| **Dev** | `127.0.0.1:9001` | `127.0.0.1:8001` | `http://127.0.0.1:9001/infer` |
+
+## Key paths
+
+- Model service: `148/app/api/model_service.py`, start via `148/scripts/`
+- Gateway: `152/app/api/gateway.py`, start via `152/scripts/`
+- Prod gateway env: `152/config/prod.env` (`MODEL_SERVICE_URL` must point at 148)
+- Model registry: `148/registry/models/`
+- Ops docs: `STARTUP_GUIDE.md` (source of truth for startup)
+
+## Agent defaults
+
+1. Prefer **PowerShell `.ps1` launchers** over legacy `.bat` wrappers.
+2. Startup order: **148 first → health → 152 → health → batch request**.
+3. Gateway is the only public entry; treat 148 as internal.
+4. Do not assume model is local on 152 — use `MODEL_SERVICE_URL`.
+5. Avoid parallel heavy GPU jobs on the same 148 worker.
+6. Dev/prod can coexist via port isolation (8000/9000 vs 8001/9001).

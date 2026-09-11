@@ -19,9 +19,9 @@ The service topology is:
 - Purpose: local iteration without disrupting production traffic
 
 ### Production
-- Model service: `http://127.0.0.1:9000`
-- Gateway: `http://127.0.0.1:8000`
-- Purpose: normal runtime path used for real extraction work
+- Model service: `http://10.0.0.148:9000`
+- Gateway: `http://10.0.0.152:8000` (or `http://127.0.0.1:8000` when the gateway is running locally on the same machine)
+- Purpose: split-server runtime path used for real extraction work
 
 ### Environment file conventions
 The project keeps separate runtime configuration files for each environment so the dev and prod services can run side by side on different ports. The production gateway config follows the same pattern shown in the app's env file:
@@ -31,12 +31,12 @@ APP_ENV=prod
 HOST=0.0.0.0
 PORT=8000
 RELOAD=false
-MODEL_SERVICE_URL=http://127.0.0.1:9000/infer
+MODEL_SERVICE_URL=http://10.0.0.148:9000/infer
 MODEL_VERSION=v1_0_0
 INPUT_MODE=batch
 OUTPUT_MODE=combined_json
 PYTHONPATH=D:\pdf_parser
-INTERNAL_MODEL_HOST=127.0.0.1
+INTERNAL_MODEL_HOST=10.0.0.148
 INTERNAL_MODEL_PORT=9000
 INTERNAL_MODEL_ENDPOINT=/infer
 
@@ -67,12 +67,12 @@ powershell -ExecutionPolicy Bypass -File .\148\scripts\setup_148_server.ps1
 ```powershell
 cd D:\pdf_parser
 powershell -ExecutionPolicy Bypass -File .\152\scripts\setup_152_server.ps1
-& ".\152\scripts\start_152_server.bat"
+powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.ps1
 ```
 
-> Important: the 152 launch script now checks for a stale listener on the default gateway port before starting. If port `8000` is already occupied by an old instance, it stops that process automatically to avoid the `Errno 10048` bind failure.
+> Important: the 152 PowerShell launcher checks for a stale listener on the default gateway port before starting. If port `8000` is already occupied by an old instance, it stops that process automatically to avoid the `Errno 10048` bind failure.
 >
-> Always run the batch file from the repo root (`D:\pdf_parser`) so the relative paths resolve correctly.
+> Always run the launcher from the repo root (`D:\pdf_parser`) so the relative paths resolve correctly.
 
 ### Option A: use the repo batch scripts
 
@@ -145,7 +145,7 @@ $env:APP_ENV = 'prod'
 $env:HOST = '0.0.0.0'
 $env:PORT = '8000'
 $env:RELOAD = 'false'
-$env:MODEL_SERVICE_URL = 'http://127.0.0.1:9000/infer'
+$env:MODEL_SERVICE_URL = 'http://10.0.0.148:9000/infer'
 .\.venv\Scripts\python.exe 152\scripts\start_gateway_152.py
 ```
 
@@ -220,8 +220,8 @@ This script does the following:
 
 ## Notes
 
-- The .ps1 files are for environment setup and bootstrap tasks.
-- The .bat files are the runtime launchers that actually start the model service and gateway.
-- The correct way to invoke a .bat launcher from PowerShell is `& ".\path\to\script.bat"`.
+- The .ps1 files are the reliable startup and bootstrap scripts for this repo.
+- The .bat files are legacy wrappers and can fail in repeated PowerShell sessions when the shell state is stale.
+- The supported startup path is to run the PowerShell launcher directly: `powershell -ExecutionPolicy Bypass -File .\152\scripts\start_152_server.ps1`.
 - The older generic `start_gpu.bat` guidance is not the active project startup path.
 - The current startup path is the two-service model described above using the scripts in the `148\scripts` and `152\scripts` folders.
